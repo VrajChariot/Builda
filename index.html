@@ -12,100 +12,124 @@
     <span id="response"></span>
     <script>
       const WS_BASE_URL = "ws://localhost:8000";
+      const INPUT_SAMPLE_RATE = 16000;
+      const OUTPUT_SAMPLE_RATE = 24000;
+      const SCRIPT_BUFFER_SIZE = 2048;
+      const VAD_RMS_THRESHOLD = 0.012;
+      const VAD_SILENCE_MS = 700;
+      const MIN_SPEECH_MS = 180;
+      const POST_SPEECH_TAIL_MS = 220;
 
-      const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("Speech recognition is not supported in this browser.");
-      }
-
-      let recognition = null;
       let chatActive = false;
-      let isRecognizing = false;
-      let isProcessing = false;
-      let isSpeaking = false;
-      let shouldAutoRestart = true;
       let geminiWebSocket = null;
       let socketReadyPromise = null;
-      let pendingResponseResolve = null;
-      let pendingResponseReject = null;
-      let currentAudio = null;
-      let currentAudioUrl = null;
+      let audioContext = null;
+      let micStream = null;
+      let micSourceNode = null;
+      let micProcessorNode = null;
+      let micSinkGainNode = null;
+      let playbackCursor = 0;
+      let speechActive = false;
+      let speechStartMs = 0;
+      let lastSpeechMs = 0;
+      let turnEnded = true;
+      let hasSentAudioInTurn = false;
 
-      const cleanupCurrentAudio = () => {
-        if (currentAudio) {
-          currentAudio.pause();
-          currentAudio = null;
+      const transcriptEl = document.getElementById("transcript");
+      const responseEl = document.getElementById("response");
+
+      const float32ToInt16Buffer = (floatBuffer) => {
+        const int16 = new Int16Array(floatBuffer.length);
+        for (let i = 0; i < floatBuffer.length; i += 1) {
+          const sample = Math.max(-1, Math.min(1, floatBuffer[i]));
+          int16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
         }
-        if (currentAudioUrl) {
-          URL.revokeObjectURL(currentAudioUrl);
-          currentAudioUrl = null;
-        }
+        return int16.buffer;
       };
 
-      const detectAudioMimeType = (audioBytes) => {
-        const bytes = new Uint8Array(audioBytes);
-        if (
-          bytes.length >= 12 &&
-          bytes[0] === 0x52 &&
-          bytes[1] === 0x49 &&
-          bytes[2] === 0x46 &&
-          bytes[3] === 0x46 &&
-          bytes[8] === 0x57 &&
-          bytes[9] === 0x41 &&
-          bytes[10] === 0x56 &&
-          bytes[11] === 0x45
-        ) {
-          return "audio/wav";
+      const downsampleTo16k = (input, inputSampleRate) => {
+        if (inputSampleRate === INPUT_SAMPLE_RATE) {
+          return input;
         }
 
-        if (
-          bytes.length >= 3 &&
-          bytes[0] === 0x49 &&
-          bytes[1] === 0x44 &&
-          bytes[2] === 0x33
-        ) {
-          return "audio/mpeg";
+        const ratio = inputSampleRate / INPUT_SAMPLE_RATE;
+        const outLength = Math.max(1, Math.round(input.length / ratio));
+        const output = new Float32Array(outLength);
+        let offsetResult = 0;
+        let offsetBuffer = 0;
+
+        while (offsetResult < output.length) {
+          const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+          let accum = 0;
+          let count = 0;
+
+          for (
+            let i = offsetBuffer;
+            i < nextOffsetBuffer && i < input.length;
+            i += 1
+          ) {
+            accum += input[i];
+            count += 1;
+          }
+
+          output[offsetResult] = count > 0 ? accum / count : 0;
+          offsetResult += 1;
+          offsetBuffer = nextOffsetBuffer;
         }
 
-        if (
-          bytes.length >= 2 &&
-          bytes[0] === 0xff &&
-          (bytes[1] & 0xe0) === 0xe0
-        ) {
-          return "audio/mpeg";
-        }
-
-        return "audio/wav";
+        return output;
       };
 
-      const playAudioBytes = (audioBytes) => {
-        if (!(audioBytes instanceof ArrayBuffer) || audioBytes.byteLength === 0)
-          return Promise.resolve();
-        return new Promise((resolve) => {
-          cleanupCurrentAudio();
-          const audioMimeType = detectAudioMimeType(audioBytes);
-          const blob = new Blob([audioBytes], { type: audioMimeType });
-          currentAudioUrl = URL.createObjectURL(blob);
-          currentAudio = new Audio(currentAudioUrl);
+      const schedulePcmPlayback = (arrayBuffer) => {
+        if (
+          !audioContext ||
+          !(arrayBuffer instanceof ArrayBuffer) ||
+          arrayBuffer.byteLength === 0
+        ) {
+          return;
+        }
 
-          isSpeaking = true;
-          currentAudio.onended = () => {
-            isSpeaking = false;
-            cleanupCurrentAudio();
-            resolve();
-          };
-          currentAudio.onerror = () => {
-            isSpeaking = false;
-            cleanupCurrentAudio();
-            resolve();
-          };
-          currentAudio.play().catch(() => {
-            isSpeaking = false;
-            cleanupCurrentAudio();
-            resolve();
-          });
-        });
+        const pcm = new Int16Array(arrayBuffer);
+        const floatData = new Float32Array(pcm.length);
+        for (let i = 0; i < pcm.length; i += 1) {
+          floatData[i] = pcm[i] / 0x8000;
+        }
+
+        const audioBuffer = audioContext.createBuffer(
+          1,
+          floatData.length,
+          OUTPUT_SAMPLE_RATE,
+        );
+        audioBuffer.copyToChannel(floatData, 0);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+
+        const now = audioContext.currentTime;
+        const startAt = Math.max(now + 0.02, playbackCursor);
+        source.start(startAt);
+        playbackCursor = startAt + audioBuffer.duration;
+      };
+
+      const computeRms = (samples) => {
+        if (!samples || samples.length === 0) return 0;
+        let sumSquares = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const s = samples[i];
+          sumSquares += s * s;
+        }
+        return Math.sqrt(sumSquares / samples.length);
+      };
+
+      const sendEndTurn = () => {
+        if (!geminiWebSocket || geminiWebSocket.readyState !== WebSocket.OPEN)
+          return;
+        if (!hasSentAudioInTurn) return;
+        geminiWebSocket.send("END_TURN");
+        turnEnded = true;
+        hasSentAudioInTurn = false;
+        responseEl.textContent = "Waiting for Gemini response...";
       };
 
       const closeGeminiSocket = () => {
@@ -129,30 +153,24 @@
           geminiWebSocket = socket;
 
           socket.onopen = () => {
-            document.getElementById("response").textContent =
-              "Connected to server.";
+            responseEl.textContent = "Connected. Streaming audio...";
             resolve();
           };
 
           socket.onmessage = (event) => {
-            if (pendingResponseResolve) {
-              pendingResponseResolve(event.data);
-              pendingResponseResolve = null;
-              pendingResponseReject = null;
+            if (typeof event.data === "string") {
+              responseEl.textContent = event.data;
+              return;
             }
+
+            schedulePcmPlayback(event.data);
           };
 
           socket.onerror = () => {
-            if (pendingResponseReject) {
-              pendingResponseReject(new Error("WebSocket error"));
-              pendingResponseResolve = null;
-              pendingResponseReject = null;
-            }
             if (chatActive) {
               chatActive = false;
-              stopListening();
-              document.getElementById("response").textContent =
-                "Socket error. Chat stopped.";
+              stopAudioStreaming();
+              responseEl.textContent = "Socket error. Chat stopped.";
             }
             reject(new Error("WebSocket error"));
           };
@@ -160,141 +178,171 @@
           socket.onclose = () => {
             socketReadyPromise = null;
             geminiWebSocket = null;
-            if (pendingResponseReject) {
-              pendingResponseReject(new Error("WebSocket closed"));
-              pendingResponseResolve = null;
-              pendingResponseReject = null;
-            }
+            responseEl.textContent = chatActive ? "Disconnected." : "Stopped";
           };
         });
 
         return socketReadyPromise;
       };
 
-      const fetchGeminiResponse = async (transcript) => {
-        await connectGeminiSocket();
-
-        return new Promise((resolve, reject) => {
-          if (
-            !geminiWebSocket ||
-            geminiWebSocket.readyState !== WebSocket.OPEN
-          ) {
-            reject(new Error("WebSocket is not connected"));
-            return;
-          }
-
-          if (pendingResponseResolve) {
-            reject(new Error("Previous request still pending"));
-            return;
-          }
-
-          pendingResponseResolve = resolve;
-          pendingResponseReject = reject;
-          // geminiWebSocket.send(JSON.stringify({ transcript }));
-          geminiWebSocket.send(transcript);
-        });
-      };
-
-      const stopListening = () => {
-        if (!recognition || !isRecognizing) return;
-        shouldAutoRestart = false;
-        recognition.stop();
-      };
-
-      const startListening = () => {
-        if (
-          !recognition ||
-          isRecognizing ||
-          !chatActive ||
-          isSpeaking ||
-          isProcessing
-        )
-          return;
-        shouldAutoRestart = true;
-        recognition.start();
-      };
-
-      const postTranscriptAndSpeakResponse = async (transcript) => {
-        if (!transcript || !transcript.trim()) return;
-        isProcessing = true;
-        stopListening();
-
-        try {
-          const audioBytes = await fetchGeminiResponse(transcript);
-          if (
-            typeof audioBytes === "string" &&
-            audioBytes.startsWith("ERROR:")
-          ) {
-            document.getElementById("response").textContent = audioBytes;
-            return;
-          }
-          document.getElementById("response").textContent = "Playing audio...";
-          await playAudioBytes(audioBytes);
-          document.getElementById("response").textContent = "Ready";
-        } catch (error) {
-          document.getElementById("response").textContent =
-            "Could not get response from server.";
-          console.error(error);
-        } finally {
-          isProcessing = false;
-          if (chatActive) startListening();
+      const startAudioStreaming = async () => {
+        const AudioContextClass =
+          window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          throw new Error("Web Audio API is not supported in this browser.");
         }
-      };
 
-      const setupSpeechRecognition = () => {
-        if (!SpeechRecognition) return;
-        recognition = new SpeechRecognition();
-        recognition.lang = "en-US";
-        recognition.interimResults = false;
-        recognition.continuous = false;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error(
+            "Microphone access is not supported in this browser.",
+          );
+        }
 
-        recognition.onstart = () => {
-          isRecognizing = true;
-        };
+        if (!audioContext) {
+          audioContext = new AudioContextClass({
+            sampleRate: INPUT_SAMPLE_RATE,
+          });
+        }
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
 
-        recognition.onend = () => {
-          isRecognizing = false;
-          if (chatActive && shouldAutoRestart && !isSpeaking && !isProcessing) {
-            startListening();
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+
+        micSourceNode = audioContext.createMediaStreamSource(micStream);
+        micProcessorNode = audioContext.createScriptProcessor(
+          SCRIPT_BUFFER_SIZE,
+          1,
+          1,
+        );
+        micSinkGainNode = audioContext.createGain();
+        micSinkGainNode.gain.value = 0;
+
+        playbackCursor = audioContext.currentTime;
+        speechActive = false;
+        speechStartMs = 0;
+        lastSpeechMs = 0;
+        turnEnded = true;
+        hasSentAudioInTurn = false;
+
+        micProcessorNode.onaudioprocess = (event) => {
+          if (!chatActive) return;
+          if (!geminiWebSocket || geminiWebSocket.readyState !== WebSocket.OPEN)
+            return;
+
+          const inputData = event.inputBuffer.getChannelData(0);
+          const nowMs = performance.now();
+          const rms = computeRms(inputData);
+          const isSpeech = rms >= VAD_RMS_THRESHOLD;
+
+          if (isSpeech) {
+            if (!speechActive) {
+              speechActive = true;
+              speechStartMs = nowMs;
+              turnEnded = false;
+              hasSentAudioInTurn = false;
+              responseEl.textContent = "Listening...";
+            }
+            lastSpeechMs = nowMs;
           }
-          shouldAutoRestart = true;
+
+          const inTailWindow =
+            speechActive && nowMs - lastSpeechMs <= POST_SPEECH_TAIL_MS;
+          const shouldStreamChunk = isSpeech || inTailWindow;
+
+          if (shouldStreamChunk) {
+            const downsampled = downsampleTo16k(
+              inputData,
+              audioContext.sampleRate,
+            );
+            const pcmBuffer = float32ToInt16Buffer(downsampled);
+
+            if (pcmBuffer.byteLength > 0) {
+              geminiWebSocket.send(pcmBuffer);
+              hasSentAudioInTurn = true;
+            }
+          }
+
+          if (speechActive && !turnEnded) {
+            const spokeLongEnough = nowMs - speechStartMs >= MIN_SPEECH_MS;
+            const silenceLongEnough = nowMs - lastSpeechMs >= VAD_SILENCE_MS;
+            if (spokeLongEnough && silenceLongEnough) {
+              speechActive = false;
+              sendEndTurn();
+            }
+          }
         };
 
-        recognition.onerror = (event) => {
-          console.error("Speech recognition error:", event.error);
-        };
-
-        recognition.onresult = async (event) => {
-          const transcript = event.results[0][0].transcript;
-          document.getElementById("transcript").textContent = transcript;
-          await postTranscriptAndSpeakResponse(transcript);
-        };
+        micSourceNode.connect(micProcessorNode);
+        micProcessorNode.connect(micSinkGainNode);
+        micSinkGainNode.connect(audioContext.destination);
       };
 
-      setupSpeechRecognition();
+      const stopAudioStreaming = () => {
+        try {
+          if (micProcessorNode) {
+            micProcessorNode.disconnect();
+            micProcessorNode.onaudioprocess = null;
+          }
+          if (micSourceNode) {
+            micSourceNode.disconnect();
+          }
+          if (micSinkGainNode) {
+            micSinkGainNode.disconnect();
+          }
+        } catch (error) {
+          console.error("Error while stopping audio nodes:", error);
+        }
+
+        if (micStream) {
+          micStream.getTracks().forEach((track) => track.stop());
+        }
+
+        micProcessorNode = null;
+        micSourceNode = null;
+        micSinkGainNode = null;
+        micStream = null;
+        speechActive = false;
+        speechStartMs = 0;
+        lastSpeechMs = 0;
+        turnEnded = true;
+        hasSentAudioInTurn = false;
+      };
 
       const button = document.getElementById("speech-to-text");
       button.addEventListener("click", async () => {
+        if (chatActive) return;
         chatActive = true;
+        transcriptEl.textContent =
+          "Live mode: microphone streaming to Gemini and audio streaming back.";
+
         try {
           await connectGeminiSocket();
+          await startAudioStreaming();
+          responseEl.textContent = "Listening and streaming...";
         } catch (error) {
           chatActive = false;
-          document.getElementById("response").textContent =
-            "Could not connect to websocket.";
+          stopAudioStreaming();
+          closeGeminiSocket();
+          responseEl.textContent = "Could not start live audio chat.";
           console.error(error);
-          return;
         }
-        startListening();
       });
 
       const stopButton = document.getElementById("stop-chat");
       stopButton.addEventListener("click", () => {
         chatActive = false;
-        stopListening();
-        cleanupCurrentAudio();
+        sendEndTurn();
+        stopAudioStreaming();
         closeGeminiSocket();
-        document.getElementById("response").textContent = "Stopped";
+        responseEl.textContent = "Stopped";
       });
     </script>
   </body>

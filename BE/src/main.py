@@ -1,18 +1,21 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-import io
 import os
-import re
-import wave
+from contextlib import suppress
 from typing import Any, cast
 from google import genai
+from google.genai import types
+from google.genai.errors import APIError
 from dotenv import load_dotenv
 
 
 load_dotenv()
 app = FastAPI()
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "models/gemini-3.1-flash-live-preview")
+INPUT_AUDIO_MIME = os.getenv("GEMINI_INPUT_AUDIO_MIME", "audio/pcm;rate=16000")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,97 +26,100 @@ app.add_middleware(
 )
 
 
-
 @app.websocket("/talk-to-gemini")
 async def talk_to_gemini(websocket: WebSocket):
     await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            try:
-                response_text = await asyncio.to_thread(generate_text_response, data)
-                audio_bytes = await asyncio.to_thread(synthesize_audio, response_text)
-                await websocket.send_bytes(audio_bytes)
-            except Exception as error:
-                await websocket.send_text(f"ERROR: {error}")
-    except WebSocketDisconnect:
+    if not os.environ.get("GEMINI_API_KEY"):
+        await websocket.send_text("ERROR: Missing GEMINI_API_KEY")
+        await websocket.close(code=1011)
         return
 
+    live_config = cast(Any, {"response_modalities": ["AUDIO"]})
+    receiver_task: asyncio.Task[None] | None = None
 
-def generate_text_response(user_input: str) -> str:
-    model = "gemma-4-26b-a4b-it"
-    system_prompt = (
-        "You are a warm, thoughtful, and highly capable assistant. "
-        "Your tone should feel natural, friendly, and human: conversational, clear, and never robotic. "
-        "Respond like a smart, kind person who genuinely wants to help. "
-        "\n\n"
-        "Style and behavior:\n"
-        "- Be friendly, calm, and encouraging.\n"
-        "- Use plain language first, then add detail only when useful.\n"
-        "- Show empathy when users are confused, stressed, or frustrated.\n"
-        "- Keep answers practical and well-structured, with direct takeaways.\n"
-        "- If a request is unclear, ask a short clarifying question instead of guessing.\n"
-        "- Be honest about uncertainty and avoid making things up.\n"
-        "\n"
-        "You can use Google Search for up-to-date information. "
-        "When you do, briefly mention the exact search query (or a close paraphrase) and why you ran it, "
-        "so the user can follow your reasoning."
-    )
-    contents = user_input
-    generate_content_config = {
-        "system_instruction": [
-            {"text": system_prompt},
-        ],
-    }
+    try:
+        async with client.aio.live.connect(model=LIVE_MODEL, config=live_config) as session:
+            receiver_task = asyncio.create_task(_forward_model_audio(session, websocket))
 
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=cast(Any, generate_content_config),
-    )
-    return response.text or "Sorry, I could not generate a response right now."
+            while True:
+                if receiver_task.done():
+                    error = receiver_task.exception()
+                    if error:
+                        raise RuntimeError(f"Live receiver failed: {error}") from error
+                    receiver_task = asyncio.create_task(_forward_model_audio(session, websocket))
 
+                message = await websocket.receive()
 
-def synthesize_audio(text: str) -> bytes:
-    model = "gemini-3.1-flash-tts-preview"
-    contents = text
-    generate_content_config = {
-        "response_modalities": ["audio"],
-        "speech_config": "charon",
-    }
+                if message.get("type") == "websocket.disconnect":
+                    break
 
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=cast(Any, generate_content_config),
-    )
+                audio_chunk = message.get("bytes")
+                if audio_chunk is not None:
+                    await session.send_realtime_input(
+                        audio=types.Blob(
+                            data=audio_chunk,
+                            mime_type=INPUT_AUDIO_MIME,
+                        )
+                    )
+                    continue
 
-    for candidate in (response.candidates if response else []) or []:
-        content = getattr(candidate, "content", None)
-        for part in getattr(content, "parts", []) or []:
-            inline_data = getattr(part, "inline_data", None)
-            if inline_data and inline_data.data:
-                mime_type = (getattr(inline_data, "mime_type", "") or "").lower()
-                if "audio/l16" in mime_type:
-                    sample_rate = parse_sample_rate(mime_type)
-                    return pcm_to_wav(inline_data.data, sample_rate)
-                return inline_data.data
+                text_message = message.get("text")
+                if not text_message:
+                    continue
 
-    raise ValueError("No audio returned from Gemini")
+                command = text_message.strip().upper()
+                if command == "END_TURN":
+                    await _end_audio_turn(session)
+                elif command == "PING":
+                    await websocket.send_text("PONG")
+                else:
+                    await session.send_client_content(
+                        turns=[{"role": "user", "parts": [{"text": text_message}]}],
+                        turn_complete=True,
+                    )
+    except WebSocketDisconnect:
+        return
+    except Exception as error:
+        with suppress(Exception):
+            await websocket.send_text(f"ERROR: {error}")
+    finally:
+        if receiver_task:
+            receiver_task.cancel()
+            with suppress(asyncio.CancelledError, APIError, Exception):
+                await receiver_task
 
 
-def parse_sample_rate(mime_type: str) -> int:
-    rate_match = re.search(r"rate=(\d+)", mime_type)
-    if rate_match:
-        return int(rate_match.group(1))
-    return 24000
+async def _forward_model_audio(session: Any, websocket: WebSocket) -> None:
+    while True:
+        try:
+            async for response in session.receive():
+                server_content = getattr(response, "server_content", None)
+                model_turn = getattr(server_content, "model_turn", None)
+                if not model_turn:
+                    continue
+
+                for part in getattr(model_turn, "parts", []) or []:
+                    inline_data = getattr(part, "inline_data", None)
+                    audio_data = getattr(inline_data, "data", None) if inline_data else None
+                    if audio_data:
+                        await websocket.send_bytes(audio_data)
+
+            # After receive() completes (turn ends), wait briefly before attempting to receive again
+            # This gives the session time to prepare for the next turn
+            await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            raise
+        except APIError as error:
+            if getattr(error, "status_code", None) == 1000:
+                return
+            raise
+        except Exception:
+            # Bubble up so outer loop can surface a clear websocket error.
+            raise
 
 
-def pcm_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(sample_rate)
-        wav_file.writeframes(pcm_bytes)
-    return buffer.getvalue()
+async def _end_audio_turn(session: Any) -> None:
+    try:
+        await session.send_realtime_input(audio_stream_end=True)
+    except TypeError:
+        await session.send_client_content(turns=[], turn_complete=True)
