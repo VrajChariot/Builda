@@ -3,13 +3,696 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <title>Builda Voice Agent</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08111d;
+        --bg-soft: rgba(12, 20, 34, 0.72);
+        --panel: rgba(14, 24, 39, 0.88);
+        --panel-strong: rgba(18, 30, 49, 0.96);
+        --text: #f3f7ff;
+        --muted: rgba(243, 247, 255, 0.68);
+        --muted-2: rgba(243, 247, 255, 0.46);
+        --accent: #78d7ff;
+        --accent-2: #8a7dff;
+        --accent-3: #4be2b6;
+        --danger: #ff7a90;
+        --border: rgba(255, 255, 255, 0.08);
+        --shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(
+            circle at top left,
+            rgba(138, 125, 255, 0.22),
+            transparent 32%
+          ),
+          radial-gradient(
+            circle at top right,
+            rgba(120, 215, 255, 0.2),
+            transparent 28%
+          ),
+          linear-gradient(180deg, #08111d 0%, #0b1625 100%);
+        color: var(--text);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      body {
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        inset: auto;
+        width: 28rem;
+        height: 28rem;
+        border-radius: 999px;
+        filter: blur(70px);
+        opacity: 0.22;
+        pointer-events: none;
+        animation: float 16s ease-in-out infinite;
+      }
+
+      body::before {
+        top: -8rem;
+        left: -6rem;
+        background: rgba(138, 125, 255, 0.6);
+      }
+
+      body::after {
+        right: -8rem;
+        bottom: -10rem;
+        background: rgba(75, 226, 182, 0.45);
+        animation-delay: -6s;
+      }
+
+      .app-shell {
+        position: relative;
+        z-index: 1;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 24px;
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 18px;
+      }
+
+      .topbar,
+      .composer,
+      .feed,
+      .hero-card {
+        border: 1px solid var(--border);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.05),
+          rgba(255, 255, 255, 0.03)
+        );
+        backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px;
+        border-radius: 24px;
+        animation: rise 0.7s ease both;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 15px;
+        background: linear-gradient(
+          135deg,
+          rgba(120, 215, 255, 0.95),
+          rgba(138, 125, 255, 0.95)
+        );
+        box-shadow: 0 14px 30px rgba(120, 215, 255, 0.24);
+      }
+
+      .brand-copy {
+        min-width: 0;
+      }
+
+      .eyebrow {
+        display: block;
+        font-size: 0.74rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--muted-2);
+        margin-bottom: 4px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.25rem, 2vw, 1.65rem);
+        line-height: 1.15;
+        font-weight: 680;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--muted);
+        font-size: 0.92rem;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--accent-3);
+        box-shadow: 0 0 16px rgba(75, 226, 182, 0.75);
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+
+      .hero-card {
+        border-radius: 28px;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 18px;
+        align-items: stretch;
+        animation: rise 0.85s ease both;
+      }
+
+      .hero-title {
+        margin: 0 0 10px;
+        font-size: clamp(2rem, 4vw, 4rem);
+        line-height: 0.96;
+        letter-spacing: -0.05em;
+      }
+
+      .hero-copy {
+        margin: 0;
+        max-width: 58ch;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.6;
+      }
+
+      .hero-stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stat-card {
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 16px;
+        min-height: 104px;
+      }
+
+      .stat-label {
+        display: block;
+        color: var(--muted-2);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        margin-bottom: 10px;
+      }
+
+      .stat-value {
+        display: block;
+        font-size: 1.02rem;
+        line-height: 1.45;
+        color: var(--text);
+      }
+
+      .feed {
+        border-radius: 28px;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-height: 360px;
+        overflow: hidden;
+      }
+
+      .feed-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 4px 0;
+      }
+
+      .feed-header h2 {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .feed-badge {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      #conversation {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow: auto;
+        padding: 6px 4px 4px;
+        flex: 1;
+      }
+
+      .message {
+        max-width: min(760px, 92%);
+        border-radius: 22px;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        position: relative;
+        animation: messageIn 0.36s ease both;
+      }
+
+      .message::after {
+        content: "";
+        position: absolute;
+        inset: auto 14px -6px auto;
+        width: 12px;
+        height: 12px;
+        transform: rotate(45deg);
+        background: inherit;
+        border-right: inherit;
+        border-bottom: inherit;
+      }
+
+      .message-user {
+        align-self: flex-end;
+        background: linear-gradient(
+          135deg,
+          rgba(120, 215, 255, 0.16),
+          rgba(138, 125, 255, 0.12)
+        );
+      }
+
+      .message-assistant {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 0.78rem;
+        color: var(--muted-2);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .message-text {
+        white-space: pre-wrap;
+        line-height: 1.65;
+        font-size: 0.98rem;
+        color: var(--text);
+      }
+
+      .assistant-live {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .assistant-live::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.08),
+          transparent
+        );
+        transform: translateX(-100%);
+        animation: shimmer 1.8s ease infinite;
+      }
+
+      .composer {
+        border-radius: 28px;
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+        animation: rise 0.95s ease both;
+      }
+
+      .controls-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button {
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 46px;
+        padding: 0 16px;
+        border-radius: 16px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition:
+          transform 0.18s ease,
+          background 0.18s ease,
+          border-color 0.18s ease,
+          opacity 0.18s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+
+      .btn-primary {
+        background: linear-gradient(
+          135deg,
+          rgba(120, 215, 255, 0.92),
+          rgba(138, 125, 255, 0.92)
+        );
+        border-color: transparent;
+        color: #06111d;
+        font-weight: 700;
+      }
+
+      .btn-danger {
+        background: linear-gradient(
+          135deg,
+          rgba(255, 122, 144, 0.95),
+          rgba(255, 159, 122, 0.95)
+        );
+        color: #1b0d11;
+        font-weight: 700;
+      }
+
+      .btn-ghost.is-active {
+        border-color: rgba(120, 215, 255, 0.35);
+        box-shadow: 0 0 0 1px rgba(120, 215, 255, 0.14) inset;
+      }
+
+      .btn[disabled] {
+        opacity: 0.56;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .mic-meter {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.24);
+      }
+
+      .mic-meter.live {
+        background: var(--accent-3);
+        box-shadow: 0 0 16px rgba(75, 226, 182, 0.75);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .mic-meter.muted {
+        background: var(--danger);
+        box-shadow: 0 0 16px rgba(255, 122, 144, 0.65);
+      }
+
+      .mic-meter.speaking {
+        background: var(--accent);
+        box-shadow: 0 0 18px rgba(120, 215, 255, 0.7);
+        animation: pulse 1.1s ease-in-out infinite;
+      }
+
+      .input-hint {
+        color: var(--muted-2);
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        50% {
+          transform: translate3d(0, 14px, 0) scale(1.04);
+        }
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.2);
+        }
+      }
+
+      @keyframes shimmer {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(100%);
+        }
+      }
+
+      @keyframes messageIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @media (max-width: 900px) {
+        .hero-card {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-title {
+          font-size: clamp(1.8rem, 9vw, 3rem);
+        }
+
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .status-pill {
+          width: 100%;
+          justify-content: space-between;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .app-shell {
+          padding: 14px;
+          gap: 14px;
+        }
+
+        .hero-card,
+        .feed,
+        .composer,
+        .topbar {
+          border-radius: 22px;
+        }
+
+        .hero-stats {
+          grid-template-columns: 1fr;
+        }
+
+        .message {
+          max-width: 100%;
+        }
+
+        .button-row {
+          width: 100%;
+        }
+
+        .btn {
+          flex: 1 1 auto;
+        }
+      }
+    </style>
   </head>
   <body>
-    <button id="speech-to-text">Start chat</button>
-    <div id="transcript"></div>
-    <button id="stop-chat">Stop Chat</button>
-    <span id="response"></span>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-copy">
+            <span class="eyebrow">Builda Voice Agent</span>
+            <h1>Fast, calm, voice-first conversations.</h1>
+          </div>
+        </div>
+        <div class="status-pill" aria-live="polite">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">Ready to start</span>
+        </div>
+      </header>
+
+      <section class="hero-card" aria-label="Voice assistant overview">
+        <div>
+          <p class="hero-title">
+            Talk naturally. Hear a response. Keep the interface out of the way.
+          </p>
+          <p class="hero-copy">
+            This interface is designed like a voice agent, not a text chat
+            window. Your speech, the assistant's spoken reply, and the live
+            session state all show up clearly while staying minimal and easy on
+            the eyes.
+          </p>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-card">
+            <span class="stat-label">Conversation</span>
+            <span class="stat-value"
+              >Displays your speech and the assistant's response as separate
+              chat bubbles.</span
+            >
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Microphone</span>
+            <span class="stat-value"
+              >Includes a mute toggle so you can pause input without stopping
+              the session.</span
+            >
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Motion</span>
+            <span class="stat-value"
+              >Uses subtle gradients, glows, and soft animations instead of a
+              plain form layout.</span
+            >
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Voice</span>
+            <span class="stat-value"
+              >Keeps the experience concise and human, which better matches
+              spoken interaction.</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="feed" aria-label="Conversation">
+        <div class="feed-header">
+          <h2>Conversation</h2>
+          <div class="feed-badge" id="connection-badge">Disconnected</div>
+        </div>
+        <div
+          id="conversation"
+          aria-live="polite"
+          aria-relevant="additions text"
+        ></div>
+      </section>
+
+      <section class="composer" aria-label="Voice controls">
+        <div class="controls-row">
+          <div class="pill">
+            <span class="mic-meter" id="mic-meter"></span>
+            <span id="mic-state-text">Mic idle</span>
+          </div>
+          <div class="input-hint" id="session-hint">
+            Start a chat, speak naturally, and the assistant will answer aloud.
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="btn btn-primary" id="speech-to-text" type="button">
+            Start chat
+          </button>
+          <button
+            class="btn btn-ghost"
+            id="mute-mic"
+            type="button"
+            aria-pressed="false"
+          >
+            Mute mic
+          </button>
+          <button class="btn btn-danger" id="stop-chat" type="button">
+            Stop chat
+          </button>
+        </div>
+      </section>
+    </main>
     <script>
       const WS_BASE_URL = "ws://localhost:8000";
       const INPUT_SAMPLE_RATE = 16000;
@@ -23,20 +706,181 @@
       let chatActive = false;
       let geminiWebSocket = null;
       let socketReadyPromise = null;
-      let audioContext = null;
-      let micStream = null;
-      let micSourceNode = null;
-      let micProcessorNode = null;
-      let micSinkGainNode = null;
-      let playbackCursor = 0;
-      let speechActive = false;
-      let speechStartMs = 0;
-      let lastSpeechMs = 0;
-      let turnEnded = true;
-      let hasSentAudioInTurn = false;
+      let pendingResponseResolve = null;
+      let pendingResponseReject = null;
+      let pendingAudioChunks = [];
+      let audioQueueDraining = false;
+      let responseStreamComplete = false;
+      let currentAudio = null;
+      let currentAudioUrl = null;
+      let isMicMuted = false;
+      let activeAssistantContentNode = null;
 
-      const transcriptEl = document.getElementById("transcript");
-      const responseEl = document.getElementById("response");
+      const conversationEl = document.getElementById("conversation");
+      const statusTextEl = document.getElementById("status-text");
+      const connectionBadgeEl = document.getElementById("connection-badge");
+      const micMeterEl = document.getElementById("mic-meter");
+      const micStateTextEl = document.getElementById("mic-state-text");
+      const sessionHintEl = document.getElementById("session-hint");
+      const muteButton = document.getElementById("mute-mic");
+
+      const setStatus = (text, detail) => {
+        statusTextEl.textContent = text;
+        if (detail) {
+          sessionHintEl.textContent = detail;
+        }
+      };
+
+      const setConnectionBadge = (text) => {
+        connectionBadgeEl.textContent = text;
+      };
+
+      const scrollConversationToEnd = () => {
+        conversationEl.scrollTop = conversationEl.scrollHeight;
+      };
+
+      const createMessageBubble = (role, text = "") => {
+        const message = document.createElement("article");
+        message.className = `message message-${role}`;
+        message.dataset.role = role;
+
+        const meta = document.createElement("div");
+        meta.className = "message-meta";
+        meta.textContent = role === "user" ? "You" : "Assistant";
+
+        const content = document.createElement("div");
+        content.className = "message-text";
+        content.textContent = text;
+
+        message.append(meta, content);
+        conversationEl.appendChild(message);
+        scrollConversationToEnd();
+        return content;
+      };
+
+      const upsertAssistantBubble = (chunkText) => {
+        if (!activeAssistantContentNode) {
+          activeAssistantContentNode = createMessageBubble(
+            "assistant",
+            chunkText,
+          );
+          activeAssistantContentNode.parentElement.classList.add(
+            "assistant-live",
+          );
+          scrollConversationToEnd();
+          return;
+        }
+
+        const currentText = activeAssistantContentNode.textContent || "";
+        activeAssistantContentNode.textContent = currentText
+          ? `${currentText}${currentText.endsWith(" ") ? "" : " "}${chunkText}`.trim()
+          : chunkText;
+        activeAssistantContentNode.parentElement.classList.add(
+          "assistant-live",
+        );
+        scrollConversationToEnd();
+      };
+
+      const clearAssistantLiveState = () => {
+        const liveBubble = activeAssistantContentNode?.parentElement;
+        if (liveBubble) liveBubble.classList.remove("assistant-live");
+        activeAssistantContentNode = null;
+      };
+
+      const setMicUiState = () => {
+        micStateTextEl.textContent = isMicMuted
+          ? "Mic muted"
+          : isRecognizing
+            ? "Listening"
+            : chatActive
+              ? "Ready to listen"
+              : "Mic idle";
+        micMeterEl.className = "mic-meter";
+        if (isMicMuted) {
+          micMeterEl.classList.add("muted");
+        } else if (isSpeaking) {
+          micMeterEl.classList.add("speaking");
+        } else if (isRecognizing) {
+          micMeterEl.classList.add("live");
+        }
+        muteButton.classList.toggle("is-active", isMicMuted);
+        muteButton.setAttribute("aria-pressed", String(isMicMuted));
+        muteButton.textContent = isMicMuted ? "Unmute mic" : "Mute mic";
+      };
+
+      const setMicMuted = (muted) => {
+        isMicMuted = muted;
+        if (isMicMuted) {
+          stopListening();
+          sessionHintEl.textContent =
+            "Microphone muted. You can still read the assistant's replies.";
+        } else if (chatActive && !isSpeaking && !isProcessing) {
+          startListening();
+          sessionHintEl.textContent =
+            "Microphone unmuted. Speak whenever you're ready.";
+        } else {
+          sessionHintEl.textContent =
+            "Microphone unmuted. Start chatting when the session is active.";
+        }
+        setMicUiState();
+      };
+
+      const cleanupCurrentAudio = () => {
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio = null;
+        }
+        if (currentAudioUrl) {
+          URL.revokeObjectURL(currentAudioUrl);
+          currentAudioUrl = null;
+        }
+      };
+
+      const resetIncomingAudioState = () => {
+        pendingAudioChunks = [];
+        audioQueueDraining = false;
+        responseStreamComplete = false;
+      };
+
+      const resolveResponseIfDone = () => {
+        if (
+          responseStreamComplete &&
+          pendingAudioChunks.length === 0 &&
+          !audioQueueDraining &&
+          !isSpeaking &&
+          pendingResponseResolve
+        ) {
+          clearAssistantLiveState();
+          pendingResponseResolve();
+          pendingResponseResolve = null;
+          pendingResponseReject = null;
+        }
+      };
+
+      const drainAudioQueue = async () => {
+        if (audioQueueDraining) return;
+
+        audioQueueDraining = true;
+        try {
+          while (pendingAudioChunks.length > 0) {
+            const nextChunk = pendingAudioChunks.shift();
+            setStatus(
+              "Playing audio",
+              "The assistant response is being spoken.",
+            );
+            await playAudioBytes(nextChunk);
+          }
+        } finally {
+          audioQueueDraining = false;
+          resolveResponseIfDone();
+          setMicUiState();
+        }
+      };
+
+      const enqueueAudioChunk = (audioBytes) => {
+        pendingAudioChunks.push(audioBytes);
+        void drainAudioQueue();
+      };
 
       const float32ToInt16Buffer = (floatBuffer) => {
         const int16 = new Int16Array(floatBuffer.length);
@@ -80,56 +924,37 @@
         return output;
       };
 
-      const schedulePcmPlayback = (arrayBuffer) => {
-        if (
-          !audioContext ||
-          !(arrayBuffer instanceof ArrayBuffer) ||
-          arrayBuffer.byteLength === 0
-        ) {
-          return;
-        }
+      const playAudioBytes = (audioBytes) => {
+        if (!(audioBytes instanceof ArrayBuffer) || audioBytes.byteLength === 0)
+          return Promise.resolve();
+        return new Promise((resolve) => {
+          cleanupCurrentAudio();
+          const audioMimeType = detectAudioMimeType(audioBytes);
+          const blob = new Blob([audioBytes], { type: audioMimeType });
+          currentAudioUrl = URL.createObjectURL(blob);
+          currentAudio = new Audio(currentAudioUrl);
 
-        const pcm = new Int16Array(arrayBuffer);
-        const floatData = new Float32Array(pcm.length);
-        for (let i = 0; i < pcm.length; i += 1) {
-          floatData[i] = pcm[i] / 0x8000;
-        }
-
-        const audioBuffer = audioContext.createBuffer(
-          1,
-          floatData.length,
-          OUTPUT_SAMPLE_RATE,
-        );
-        audioBuffer.copyToChannel(floatData, 0);
-
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-
-        const now = audioContext.currentTime;
-        const startAt = Math.max(now + 0.02, playbackCursor);
-        source.start(startAt);
-        playbackCursor = startAt + audioBuffer.duration;
-      };
-
-      const computeRms = (samples) => {
-        if (!samples || samples.length === 0) return 0;
-        let sumSquares = 0;
-        for (let i = 0; i < samples.length; i += 1) {
-          const s = samples[i];
-          sumSquares += s * s;
-        }
-        return Math.sqrt(sumSquares / samples.length);
-      };
-
-      const sendEndTurn = () => {
-        if (!geminiWebSocket || geminiWebSocket.readyState !== WebSocket.OPEN)
-          return;
-        if (!hasSentAudioInTurn) return;
-        geminiWebSocket.send("END_TURN");
-        turnEnded = true;
-        hasSentAudioInTurn = false;
-        responseEl.textContent = "Waiting for Gemini response...";
+          isSpeaking = true;
+          setMicUiState();
+          currentAudio.onended = () => {
+            isSpeaking = false;
+            cleanupCurrentAudio();
+            setMicUiState();
+            resolve();
+          };
+          currentAudio.onerror = () => {
+            isSpeaking = false;
+            cleanupCurrentAudio();
+            setMicUiState();
+            resolve();
+          };
+          currentAudio.play().catch(() => {
+            isSpeaking = false;
+            cleanupCurrentAudio();
+            setMicUiState();
+            resolve();
+          });
+        });
       };
 
       const closeGeminiSocket = () => {
@@ -153,24 +978,65 @@
           geminiWebSocket = socket;
 
           socket.onopen = () => {
-            responseEl.textContent = "Connected. Streaming audio...";
+            setConnectionBadge("Connected");
+            setStatus(
+              "Connected to server",
+              "The session is ready. Start a conversation when you want.",
+            );
             resolve();
           };
 
           socket.onmessage = (event) => {
             if (typeof event.data === "string") {
-              responseEl.textContent = event.data;
-              return;
+              if (event.data.startsWith("ERROR:")) {
+                if (pendingResponseReject) {
+                  pendingResponseReject(new Error(event.data));
+                  pendingResponseResolve = null;
+                  pendingResponseReject = null;
+                }
+                cleanupCurrentAudio();
+                resetIncomingAudioState();
+                clearAssistantLiveState();
+                setStatus("Something went wrong", event.data);
+                return;
+              }
+
+              try {
+                const payload = JSON.parse(event.data);
+                if (payload.type === "assistant_delta" && payload.text) {
+                  upsertAssistantBubble(payload.text);
+                  setStatus(
+                    "Assistant responding",
+                    "Your reply is being spoken now.",
+                  );
+                  return;
+                }
+              } catch {
+                // Ignore plain text messages that are not JSON.
+              }
+
+              if (event.data === "DONE") {
+                responseStreamComplete = true;
+                setStatus("Response ready", "The assistant finished speaking.");
+                resolveResponseIfDone();
+                return;
+              }
             }
 
-            schedulePcmPlayback(event.data);
+            if (event.data instanceof ArrayBuffer) {
+              enqueueAudioChunk(event.data);
+            }
           };
 
           socket.onerror = () => {
             if (chatActive) {
               chatActive = false;
-              stopAudioStreaming();
-              responseEl.textContent = "Socket error. Chat stopped.";
+              stopListening();
+              setConnectionBadge("Disconnected");
+              setStatus(
+                "Socket error",
+                "The chat stopped because the connection dropped.",
+              );
             }
             reject(new Error("WebSocket error"));
           };
@@ -178,7 +1044,12 @@
           socket.onclose = () => {
             socketReadyPromise = null;
             geminiWebSocket = null;
-            responseEl.textContent = chatActive ? "Disconnected." : "Stopped";
+            setConnectionBadge("Disconnected");
+            if (pendingResponseReject) {
+              pendingResponseReject(new Error("WebSocket closed"));
+              pendingResponseResolve = null;
+              pendingResponseReject = null;
+            }
           };
         });
 
@@ -236,85 +1107,109 @@
           if (!chatActive) return;
           if (!geminiWebSocket || geminiWebSocket.readyState !== WebSocket.OPEN)
             return;
-
-          const inputData = event.inputBuffer.getChannelData(0);
-          const nowMs = performance.now();
-          const rms = computeRms(inputData);
-          const isSpeech = rms >= VAD_RMS_THRESHOLD;
-
-          if (isSpeech) {
-            if (!speechActive) {
-              speechActive = true;
-              speechStartMs = nowMs;
-              turnEnded = false;
-              hasSentAudioInTurn = false;
-              responseEl.textContent = "Listening...";
-            }
-            lastSpeechMs = nowMs;
           }
 
-          const inTailWindow =
-            speechActive && nowMs - lastSpeechMs <= POST_SPEECH_TAIL_MS;
-          const shouldStreamChunk = isSpeech || inTailWindow;
-
-          if (shouldStreamChunk) {
-            const downsampled = downsampleTo16k(
-              inputData,
-              audioContext.sampleRate,
-            );
-            const pcmBuffer = float32ToInt16Buffer(downsampled);
-
-            if (pcmBuffer.byteLength > 0) {
-              geminiWebSocket.send(pcmBuffer);
-              hasSentAudioInTurn = true;
-            }
+          if (pendingResponseResolve) {
+            reject(new Error("Previous request still pending"));
+            return;
           }
 
-          if (speechActive && !turnEnded) {
-            const spokeLongEnough = nowMs - speechStartMs >= MIN_SPEECH_MS;
-            const silenceLongEnough = nowMs - lastSpeechMs >= VAD_SILENCE_MS;
-            if (spokeLongEnough && silenceLongEnough) {
-              speechActive = false;
-              sendEndTurn();
-            }
-          }
+          pendingResponseResolve = resolve;
+          pendingResponseReject = reject;
+          resetIncomingAudioState();
+          activeAssistantContentNode = createMessageBubble(
+            "assistant",
+            "Thinking...",
+          );
+          activeAssistantContentNode.parentElement.classList.add(
+            "assistant-live",
+          );
+          setStatus(
+            "Sending your message",
+            "The assistant will answer as soon as the stream starts.",
+          );
+          geminiWebSocket.send(transcript);
+        });
+      };
+
+      const stopListening = () => {
+        if (!recognition || !isRecognizing) return;
+        shouldAutoRestart = false;
+        recognition.stop();
+        setMicUiState();
+      };
+
+      const startListening = () => {
+        if (
+          !recognition ||
+          isRecognizing ||
+          !chatActive ||
+          isSpeaking ||
+          isProcessing ||
+          isMicMuted
+        )
+          return;
+        shouldAutoRestart = true;
+        recognition.start();
+        setMicUiState();
+      };
+
+      const postTranscriptAndSpeakResponse = async (transcript) => {
+        if (!transcript || !transcript.trim()) return;
+        isProcessing = true;
+        stopListening();
+        createMessageBubble("user", transcript);
+
+        try {
+          setStatus("Thinking", "The assistant is generating a spoken reply.");
+          await fetchGeminiResponse(transcript);
+          setStatus("Ready", "Listening again when you are ready.");
+        } catch (error) {
+          setStatus(
+            "Could not respond",
+            "There was a problem getting a reply from the server.",
+          );
+          console.error(error);
+        } finally {
+          isProcessing = false;
+          setMicUiState();
+          if (chatActive && !isMicMuted) startListening();
+        }
+      };
+
+      const setupSpeechRecognition = () => {
+        if (!SpeechRecognition) return;
+        recognition = new SpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.continuous = false;
+
+        recognition.onstart = () => {
+          isRecognizing = true;
+          setMicUiState();
         };
 
-        micSourceNode.connect(micProcessorNode);
-        micProcessorNode.connect(micSinkGainNode);
-        micSinkGainNode.connect(audioContext.destination);
+        recognition.onend = () => {
+          isRecognizing = false;
+          if (chatActive && shouldAutoRestart && !isSpeaking && !isProcessing) {
+            startListening();
+          }
+          shouldAutoRestart = true;
+          setMicUiState();
+        };
+
+        recognition.onerror = (event) => {
+          console.error("Speech recognition error:", event.error);
+        };
+
+        recognition.onresult = async (event) => {
+          const transcript = event.results[0][0].transcript;
+          await postTranscriptAndSpeakResponse(transcript);
+        };
       };
 
-      const stopAudioStreaming = () => {
-        try {
-          if (micProcessorNode) {
-            micProcessorNode.disconnect();
-            micProcessorNode.onaudioprocess = null;
-          }
-          if (micSourceNode) {
-            micSourceNode.disconnect();
-          }
-          if (micSinkGainNode) {
-            micSinkGainNode.disconnect();
-          }
-        } catch (error) {
-          console.error("Error while stopping audio nodes:", error);
-        }
-
-        if (micStream) {
-          micStream.getTracks().forEach((track) => track.stop());
-        }
-
-        micProcessorNode = null;
-        micSourceNode = null;
-        micSinkGainNode = null;
-        micStream = null;
-        speechActive = false;
-        speechStartMs = 0;
-        lastSpeechMs = 0;
-        turnEnded = true;
-        hasSentAudioInTurn = false;
-      };
+      setupSpeechRecognition();
+      setMicUiState();
 
       const button = document.getElementById("speech-to-text");
       button.addEventListener("click", async () => {
@@ -329,11 +1224,19 @@
           responseEl.textContent = "Listening and streaming...";
         } catch (error) {
           chatActive = false;
-          stopAudioStreaming();
-          closeGeminiSocket();
-          responseEl.textContent = "Could not start live audio chat.";
+          setStatus("Connection failed", "Could not connect to the websocket.");
           console.error(error);
         }
+        setConnectionBadge("Connected");
+        setStatus(
+          "Listening",
+          "Speak naturally and the assistant will answer aloud.",
+        );
+        startListening();
+      });
+
+      muteButton.addEventListener("click", () => {
+        setMicMuted(!isMicMuted);
       });
 
       const stopButton = document.getElementById("stop-chat");
@@ -342,7 +1245,9 @@
         sendEndTurn();
         stopAudioStreaming();
         closeGeminiSocket();
-        responseEl.textContent = "Stopped";
+        setStatus("Stopped", "The session has ended.");
+        setConnectionBadge("Disconnected");
+        setMicUiState();
       });
     </script>
   </body>
