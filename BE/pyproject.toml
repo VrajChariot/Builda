@@ -6,7 +6,7 @@ authors = [
     {name = "Vraj Shah",email = "vraj0410shah@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "google-genai (>=1.73.1,<2.0.0)",
     "fastapi (>=0.136.1,<0.137.0)",
@@ -14,7 +14,9 @@ dependencies = [
     "dotenv (>=0.9.9,<0.10.0)",
     "uvicorn (>=0.46.0,<0.47.0)",
     "elevenlabs (>=2.44.0,<3.0.0)",
-    "google-cloud-aiplatform (>=1.148.1,<2.0.0)"
+    "google-cloud-aiplatform (>=1.148.1,<2.0.0)",
+    "kokoro (==0.9.4)",
+    "sounddevice (>=0.5.5,<0.6.0)"
 ]
 
 [tool.poetry]
