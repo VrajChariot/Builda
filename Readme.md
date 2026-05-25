@@ -12,19 +12,17 @@ This repository is intended as a small, well-organized starting point for buildi
 
 ## Quick Start
 
-Recommended: use a project-local virtual environment.
+Recommended: use Poetry. Running `poetry install` will create and manage the project virtual environment for you.
 
-1. Create and activate a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-2. Install dependencies with Poetry:
+1. Install dependencies with Poetry:
 
 ```bash
 poetry install
+```
+
+2. Run the app with `uvicorn`:
+
+```bash
 poetry run uvicorn src.main:app --reload
 ```
 
