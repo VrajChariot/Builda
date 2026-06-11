@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.light-mode {
+  color-scheme: light;
+  background-color: white;
+  color: black;
+}
+.dark-mode {
+  color-scheme: dark;
+  background-color: black;
+  color: white;
+}
+
+html,
+body,
+#root {
+  font-family: "Bricolage Grotesque", sans-serif;
+}
+
+/* Dot wave animation for chat subtitle */
+@keyframes dot-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+.dot {
+  display: inline-block;
+  animation: dot-wave 1s infinite ease-in-out;
+}
+.dot-1 {
+  animation-delay: 0s;
+}
+.dot-2 {
+  animation-delay: 0.12s;
+}
+.dot-3 {
+  animation-delay: 0.24s;
+}
+
+/* Agent (Builda) variation: slightly stronger wave for distinction */
+@keyframes dot-wave-agent {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+.dot-agent {
+  display: inline-block;
+  animation: dot-wave-agent 0.9s infinite ease-in-out;
+}
+.dot-agent-1 {
+  animation-delay: 0s;
+}
+.dot-agent-2 {
+  animation-delay: 0.12s;
+}
+.dot-agent-3 {
+  animation-delay: 0.24s;
+}
